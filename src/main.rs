@@ -1,8 +1,8 @@
 #![allow(unused)]
 use libc::c_char;
-use std::ffi::{CStr, CString};
+use std::{ffi::{CStr, CString}, io::{stdin, stdout}};
 use lazy_static::lazy_static; // 1.4.0
-use std::sync::Mutex;
+use parking_lot::Mutex;
 
 use std::{thread, time};
 
@@ -32,12 +32,12 @@ fn thr_sleep(t: u64) {
 fn check_response(process: Process) -> String {
   let mut response = String::new();
 
-  let mut proc = PROCESS.lock().unwrap();
+  let mut proc = PROCESS.lock();
   *proc = process.clone();
   std::mem::drop(proc);
 
   loop {
-    let mut proc = PROCESS.lock().unwrap();
+    let mut proc = PROCESS.lock();
     match &*proc {
       Process::Response(resp) => {
         response = resp.clone();
@@ -59,16 +59,16 @@ unsafe extern "C" fn load_db_with_path(path: *const c_char) -> i32 {
 }
 
 unsafe extern "C" fn quit() {
-  *PROCESS.lock().unwrap() = Process::Exit;
+  *PROCESS.lock() = Process::Exit;
 }
 
 // Função local chamada internamento quando o frontend solicita ao backend
 fn load_db(path: &String) {
-  *PROCESS.lock().unwrap() = Process::Response("Ok".to_string());
+  *PROCESS.lock() = Process::Response("Ok".to_string());
 }
 
 fn exit() {
-  *PROCESS.lock().unwrap() = Process::Exit;
+  *PROCESS.lock() = Process::Exit;
 }
 
 unsafe extern "C" fn start_game_thread() {
@@ -76,12 +76,12 @@ unsafe extern "C" fn start_game_thread() {
   //Um enum global informa quando e qual ação será feita
   //Após o termino da ação o enum é retornado com uma resposta
 	loop {
-    let mut lock = PROCESS.lock().unwrap();
+    let mut lock = PROCESS.lock();
     match &*lock {
       Process::Starting => {
         println!("Starting...");
         std::mem::drop(lock);
-        *PROCESS.lock().unwrap() = Process::Waiting;
+        *PROCESS.lock() = Process::Waiting;
       }, // Fazer configurações iniciais,
       Process::Waiting => (), // Aguardando por comando do frontend,
       Process::LoadDB(_path) => {
@@ -102,9 +102,18 @@ unsafe extern "C" fn start_game_thread() {
     
 
 fn main() {
+  let now = std::time::Instant::now();
+
   thread::spawn(move || {
-    thread::sleep(time::Duration::from_secs(2));
-    let path = CString::new("teste.db").unwrap();
+    use std::io::{stdin, stdout, Write};
+    print!("Choose DB name: ");
+    let mut user_db = String::new();
+    let _= stdout().flush();
+    match stdin().read_line(&mut user_db) {
+      _ => {}
+    }
+    // thread::sleep(time::Duration::from_secs(15));
+    let path = CString::new("user_db").unwrap();
     let c_path = path.as_ptr() as *const c_char;
     let val = unsafe { load_db_with_path(c_path) };
     println!("'load_db_with_path' response: {}", val);
@@ -113,5 +122,5 @@ fn main() {
   });
   unsafe { start_game_thread(); }    
   println!("Exiting main thread");
-
+  println!("duration: {:?}", now.elapsed());
 }
